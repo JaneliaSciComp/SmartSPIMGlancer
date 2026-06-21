@@ -1,0 +1,12 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# data files
+data/
+
+# python cache
+__pycache__/
+
+# zarr test/scratch stores
+*.zarr/
