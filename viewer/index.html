@@ -18,8 +18,8 @@
 
   /* ── Sidebar ──────────────────────────────────────────────────── */
   .sidebar {
-    width: 260px;
-    min-width: 260px;
+    width: 272px;
+    min-width: 272px;
     background: #0d1117;
     border-right: 1px solid #21262d;
     overflow-y: auto;
@@ -31,7 +31,7 @@
     scrollbar-color: #30363d transparent;
   }
   .sidebar.collapsed { width: 0; min-width: 0; opacity: 0; pointer-events: none; }
-  .sidebar-inner { padding: 12px; min-width: 260px; display: flex; flex-direction: column; gap: 10px; }
+  .sidebar-inner { padding: 12px; min-width: 272px; display: flex; flex-direction: column; gap: 10px; }
 
   /* ── Viewer ───────────────────────────────────────────────────── */
   .viewer { flex: 1; position: relative; background: #000; min-width: 0; }
@@ -101,6 +101,19 @@
   }
   #ng-link:hover { text-decoration: underline; }
   .note { font-size: 0.67rem; color: #6e7681; margin-top: 5px; line-height: 1.4; }
+
+  /* ── Channel legend ───────────────────────────────────────────── */
+  .ch-row {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.74rem; color: #c9d1d9; padding: 2px 0;
+    line-height: 1.35;
+  }
+  .ch-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    flex-shrink: 0; border: 1px solid rgba(255,255,255,0.15);
+  }
+  .ch-label { font-weight: 600; }
+  .ch-target { color: #6e7681; font-size: 0.68rem; }
 </style>
 </head>
 <body>
@@ -131,21 +144,48 @@
         <div class="field">
           <label>Sample</label>
           <select id="stem-sel">
-            <option value="KS_WT_F_ANM586642">KS_WT_F_ANM586642</option>
-            <option value="KS_Het_F_ANM583356">KS_Het_F_ANM583356</option>
-            <option value="KS_Hom_F_ANM583357">KS_Hom_F_ANM583357</option>
-            <option value="KS_Hom_M_ANM583365">KS_Hom_M_ANM583365</option>
+            <option value="KS_WT_F_ANM586642">WT Female · ANM586642 · C57Bl/6J</option>
+            <option value="KS_Het_F_ANM583356">Het Female · ANM583356 · Atp13a2 V990M</option>
+            <option value="KS_Hom_F_ANM583357">Hom Female · ANM583357 · Atp13a2 V990M</option>
+            <option value="KS_Hom_M_ANM583365">Hom Male · ANM583365 · Atp13a2 V990M</option>
           </select>
         </div>
         <div class="field" style="margin-top:6px">
           <label>Channel</label>
           <select id="ch-sel">
-            <option value="0">c0</option>
-            <option value="1">c1</option>
-            <option value="2">c2</option>
+            <option value="all">All channels (multi-color)</option>
+            <option value="0">c0 — CD45 · immune cells</option>
+            <option value="1">c1 — Olig2 · oligodendrocytes</option>
+            <option value="2">c2 — TH · dopamine neurons</option>
           </select>
         </div>
         <button class="action" id="load-btn" style="margin-top:8px" disabled>Load</button>
+      </div>
+
+      <!-- Channel legend -->
+      <div class="card">
+        <div class="card-title">Antibody channels</div>
+        <div class="ch-row">
+          <span class="ch-dot" style="background:#001AFF"></span>
+          <div>
+            <span class="ch-label">c0 · Anti-CD45</span>
+            <div class="ch-target">Donkey-anti-Rat AF+ 488 · lymphocytes</div>
+          </div>
+        </div>
+        <div class="ch-row" style="margin-top:5px">
+          <span class="ch-dot" style="background:#09FF00"></span>
+          <div>
+            <span class="ch-label">c1 · Anti-Olig2</span>
+            <div class="ch-target">Donkey-anti-Goat AF+ 555 · oligodendrocytes</div>
+          </div>
+        </div>
+        <div class="ch-row" style="margin-top:5px">
+          <span class="ch-dot" style="background:#FF0000"></span>
+          <div>
+            <span class="ch-label">c2 · Anti-TH</span>
+            <div class="ch-target">Donkey-anti-Chicken SeTau 647 · dopamine neurons</div>
+          </div>
+        </div>
       </div>
 
       <!-- Open-in-tab link -->
@@ -153,8 +193,8 @@
         <div class="card-title">Open in full tab</div>
         <a id="ng-link" href="#">(waiting for service worker…)</a>
         <p class="note">
-          Neuroglancer is self-hosted here so the service worker can
-          intercept its Zarr&nbsp;v3 chunk requests.
+          Multi-color: each channel is a separate Neuroglancer layer;
+          they are composited additively, matching Imaris display colors.
         </p>
       </div>
 
@@ -175,68 +215,102 @@
 <script>
 const DATA_BASE = 'https://fileglancer.int.janelia.org/files/Ydk-A_LUfeQlXbAA/data';
 
-// Build an absolute Zarr URL for the given stem + channel,
-// relative to wherever this page is hosted.
+// Default channel colors (Imaris values) — overridden by meta.json at load time.
+// Format: [R, G, B] floats for GLSL, matching the IMS file's DataSetInfo/Channel N/Color.
+const DEFAULT_CH_COLORS = [
+  [0.000, 0.102, 1.000],  // c0 — blue  (AF488 · CD45)
+  [0.035, 1.000, 0.000],  // c1 — green (AF555 · Olig2)
+  [1.000, 0.000, 0.000],  // c2 — red   (SeTau647 · TH)
+];
+
 function zarrUrl(stem, ch) {
   return new URL(`./zarr/${stem}/c${ch}`, window.location.href).href;
 }
 
-// Fetch the color range [lo, hi] for a channel from .meta.json.
-// Returns null if unavailable.
-async function fetchColorRange(stem, ch) {
-  try {
-    const resp = await fetch(`${DATA_BASE}/${stem}.meta.json`);
-    if (!resp.ok) return null;
-    const meta = await resp.json();
-    const cd = meta.channel_display?.[`c${ch}`];
-    if (!cd) return null;
-    // Use histogram-derived 1st/99th percentile if available, else fall back to ColorRange
-    if (cd.p01 != null && cd.p99 != null) return [cd.p01, cd.p99];
-    return cd.color_range ?? null;
-  } catch { return null; }
+// Build a Neuroglancer GLSL shader that maps [lo,hi] → [0,1] and tints by color.
+function makeShader(r, g, b) {
+  return `#uicontrol invlerp normalized\nvoid main() { emitRGB(normalized() * vec3(${r}, ${g}, ${b})); }`;
 }
 
-// Build the full Neuroglancer iframe URL for the selected dataset/channel.
-async function buildNgUrl(stem, ch) {
-  const src = `zarr3://${zarrUrl(stem, ch)}`;
-  const range = await fetchColorRange(stem, ch);
-  const layer = {
-    type: 'image',
-    source: src,
-    name: `${stem}_c${ch}`,
-  };
-  if (range) layer.shaderControls = { normalized: { range } };
+// Build the full Neuroglancer URL for the selected stem + channel selection.
+// chSel is 'all' | '0' | '1' | '2'
+async function buildNgUrl(stem, chSel) {
+  let meta = null;
+  try {
+    const resp = await fetch(`${DATA_BASE}/${stem}.meta.json`);
+    if (resp.ok) meta = await resp.json();
+  } catch {}
+
+  // Physical extent for initial navigation (fall back to WT values)
+  const extent = meta?.extent_um ?? [8280, 18460, 13368];  // [z, y, x] in µm
+  const position = extent.map(e => e / 2);                  // center of brain
+
+  // crossSectionScale is in dimension-units per screen pixel (µm/px here).
+  // Targeting the largest axis spanning ~900 px gives a ~2 mm scale-bar
+  // on a typical viewport, matching the desired whole-brain overview.
+  const crossSectionScale = Math.max(...extent) / 900;
+
+  // Which channels to load
+  const chList = chSel === 'all' ? [0, 1, 2] : [parseInt(chSel, 10)];
+
+  const layers = chList.map(ch => {
+    const src   = `zarr3://${zarrUrl(stem, ch)}`;
+    const cd    = meta?.channel_display?.[`c${ch}`];
+    const ci    = meta?.channel_info?.[`c${ch}`];
+    const range = (cd?.p01 != null && cd?.p99 != null) ? [cd.p01, cd.p99]
+                : (cd?.color_range ?? null);
+    const [r, g, b] = ci?.imaris_color_rgb ?? DEFAULT_CH_COLORS[ch];
+    const name  = ci?.label ?? `c${ch}`;
+
+    const layer = {
+      type: 'image',
+      source: src,
+      name: `${name} (${stem})`,
+      shader: makeShader(r, g, b),
+    };
+    if (range) layer.shaderControls = { normalized: { range } };
+    return layer;
+  });
+
   const state = {
     dimensions: { z: [1e-6, 'm'], y: [1e-6, 'm'], x: [1e-6, 'm'] },
-    layers: [layer],
+    position,
+    crossSectionScale,
+    layers,
     layout: 'xy-3d',
   };
+
   const ngBase = new URL('./neuroglancer/index.html', window.location.href).href;
   return ngBase + '#!' + JSON.stringify(state);
 }
 
 // ── UI refs ────────────────────────────────────────────────────────────────
-const badge     = document.getElementById('sw-badge');
-const statusEl  = document.getElementById('status-text');
-const iframe    = document.getElementById('ng-iframe');
+const badge       = document.getElementById('sw-badge');
+const statusEl    = document.getElementById('status-text');
+const iframe      = document.getElementById('ng-iframe');
 const placeholder = document.getElementById('placeholder');
-const loadBtn   = document.getElementById('load-btn');
-const ngLink    = document.getElementById('ng-link');
-const stemSel   = document.getElementById('stem-sel');
-const chSel     = document.getElementById('ch-sel');
+const loadBtn     = document.getElementById('load-btn');
+const ngLink      = document.getElementById('ng-link');
+const stemSel     = document.getElementById('stem-sel');
+const chSel       = document.getElementById('ch-sel');
 
 function setStatus(text, state = 'wait') {
   statusEl.textContent = text;
-  badge.textContent  = state === 'ok' ? 'Ready' : state === 'err' ? 'Error' : 'Working';
-  badge.className    = 'badge ' + state;
+  badge.textContent    = state === 'ok' ? 'Ready' : state === 'err' ? 'Error' : 'Working';
+  badge.className      = 'badge ' + state;
+}
+
+async function updateLink() {
+  const url = await buildNgUrl(stemSel.value, chSel.value);
+  const chLabel = chSel.options[chSel.selectedIndex].text.split('—')[0].trim();
+  ngLink.href        = url;
+  ngLink.textContent = `${stemSel.value} / ${chLabel} ↗`;
 }
 
 async function loadDataset() {
-  const stem = stemSel.value;
-  const ch   = chSel.value;
-  const url  = await buildNgUrl(stem, ch);
+  const url = await buildNgUrl(stemSel.value, chSel.value);
   ngLink.href        = url;
-  ngLink.textContent = `${stem} / c${ch} ↗`;
+  ngLink.textContent = ngLink.textContent; // already updated by updateLink
   placeholder.style.display = 'none';
   iframe.style.display      = 'block';
   iframe.src = url;
@@ -247,6 +321,8 @@ document.getElementById('toggle-btn').addEventListener('click', () => {
 });
 
 loadBtn.addEventListener('click', loadDataset);
+stemSel.addEventListener('change', updateLink);
+chSel.addEventListener('change', updateLink);
 
 // ── Service worker registration ────────────────────────────────────────────
 async function main() {
@@ -273,10 +349,7 @@ async function main() {
     'Select a dataset and click Load.';
   loadBtn.disabled = false;
 
-  // Pre-fill the link for the default selection
-  const url = await buildNgUrl(stemSel.value, chSel.value);
-  ngLink.href        = url;
-  ngLink.textContent = `${stemSel.value} / c${chSel.value} ↗`;
+  await updateLink();
 }
 
 main().catch(err => {

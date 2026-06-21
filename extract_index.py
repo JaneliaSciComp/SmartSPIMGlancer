@@ -68,10 +68,28 @@ def extract(ims_path: Path) -> None:
         level_names = sorted(ds.keys())
         n_levels = len(level_names)
 
+        # Read per-channel display info from DataSetInfo/Channel N
+        channel_info = {}
+        for ch_key in sorted(f["DataSetInfo"].keys()):
+            if not ch_key.startswith("Channel "):
+                continue
+            ch_idx = int(ch_key.split(" ")[1])
+            ch_grp = f["DataSetInfo"][ch_key]
+            color_str = decode_attr(ch_grp.attrs.get("Color", "1.0 1.0 1.0"))
+            rgb = [float(x) for x in color_str.split()]
+            hex_color = "#{:02X}{:02X}{:02X}".format(
+                round(rgb[0] * 255), round(rgb[1] * 255), round(rgb[2] * 255)
+            )
+            channel_info[f"c{ch_idx}"] = {
+                "imaris_color_rgb": rgb,
+                "display_color": hex_color,
+            }
+
         meta = {
             "original_shape": [z0, y0, x0],
             "extent_um": [ext_z, ext_y, ext_x],
             "unit": "micrometer",
+            "channel_info": channel_info,
             "levels": {},
         }
 
