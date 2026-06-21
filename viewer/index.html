@@ -159,6 +159,15 @@
             <option value="2">c2 — TH · dopamine neurons</option>
           </select>
         </div>
+        <div class="field" style="margin-top:6px">
+          <label>Layout</label>
+          <select id="layout-sel">
+            <option value="4panel">4-panel — XY · XZ · YZ · 3D</option>
+            <option value="xy">XY</option>
+            <option value="xz">XZ</option>
+            <option value="yz">YZ</option>
+          </select>
+        </div>
         <button class="action" id="load-btn" style="margin-top:8px" disabled>Load</button>
       </div>
 
@@ -232,9 +241,9 @@ function makeShader(r, g, b) {
   return `#uicontrol invlerp normalized\nvoid main() { emitRGB(normalized() * vec3(${r}, ${g}, ${b})); }`;
 }
 
-// Build the full Neuroglancer URL for the selected stem + channel selection.
-// chSel is 'all' | '0' | '1' | '2'
-async function buildNgUrl(stem, chSel) {
+// Build the full Neuroglancer URL for the selected stem + channel + layout.
+// chSel is 'all' | '0' | '1' | '2'; layout is a Neuroglancer layout string.
+async function buildNgUrl(stem, chSel, layout) {
   let meta = null;
   try {
     const resp = await fetch(`${DATA_BASE}/${stem}.meta.json`);
@@ -277,7 +286,7 @@ async function buildNgUrl(stem, chSel) {
     position,
     crossSectionScale,
     layers,
-    layout: 'xy-3d',
+    layout,
   };
 
   const ngBase = new URL('./neuroglancer/index.html', window.location.href).href;
@@ -293,6 +302,7 @@ const loadBtn     = document.getElementById('load-btn');
 const ngLink      = document.getElementById('ng-link');
 const stemSel     = document.getElementById('stem-sel');
 const chSel       = document.getElementById('ch-sel');
+const layoutSel   = document.getElementById('layout-sel');
 
 function setStatus(text, state = 'wait') {
   statusEl.textContent = text;
@@ -301,14 +311,14 @@ function setStatus(text, state = 'wait') {
 }
 
 async function updateLink() {
-  const url = await buildNgUrl(stemSel.value, chSel.value);
+  const url = await buildNgUrl(stemSel.value, chSel.value, layoutSel.value);
   const chLabel = chSel.options[chSel.selectedIndex].text.split('—')[0].trim();
   ngLink.href        = url;
   ngLink.textContent = `${stemSel.value} / ${chLabel} ↗`;
 }
 
 async function loadDataset() {
-  const url = await buildNgUrl(stemSel.value, chSel.value);
+  const url = await buildNgUrl(stemSel.value, chSel.value, layoutSel.value);
   ngLink.href        = url;
   ngLink.textContent = ngLink.textContent; // already updated by updateLink
   placeholder.style.display = 'none';
@@ -323,6 +333,7 @@ document.getElementById('toggle-btn').addEventListener('click', () => {
 loadBtn.addEventListener('click', loadDataset);
 stemSel.addEventListener('change', updateLink);
 chSel.addEventListener('change', updateLink);
+layoutSel.addEventListener('change', updateLink);
 
 // ── Service worker registration ────────────────────────────────────────────
 async function main() {
