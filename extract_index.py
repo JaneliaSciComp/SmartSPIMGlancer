@@ -30,6 +30,7 @@ A companion .meta.json is also written with physical metadata for zarr.json gene
 import h5py
 import numpy as np
 import json
+import math
 import struct
 import sys
 import time
@@ -47,6 +48,27 @@ def decode_attr(v):
             x if isinstance(x, bytes) else bytes([int(x)]) for x in v
         ).decode("utf-8")
     return str(v)
+
+
+def percentile_from_histogram(counts, hmin: float, hmax: float, pct: float) -> int:
+    """
+    Estimate the pct-th percentile from a binned histogram via linear
+    interpolation within the containing bin, floored to an integer.
+
+    Imaris embeds a 1024-bin Histogram1024 per channel (over HistogramMin1024
+    .. HistogramMax1024) computed over the true unpadded image — its bin
+    counts sum to exactly ImageSizeZ * ImageSizeY * ImageSizeX.
+    """
+    counts = counts.astype(np.float64)
+    total = counts.sum()
+    target = total * pct / 100.0
+    cum = np.cumsum(counts)
+    idx = min(int(np.searchsorted(cum, target)), len(counts) - 1)
+    bin_width = (hmax - hmin) / len(counts)
+    prev_cum = cum[idx - 1] if idx > 0 else 0.0
+    frac = (target - prev_cum) / counts[idx] if counts[idx] > 0 else 0.0
+    frac = min(max(frac, 0.0), 1.0)
+    return math.floor(hmin + (idx + frac) * bin_width)
 
 
 def extract(ims_path: Path) -> None:
@@ -85,11 +107,14 @@ def extract(ims_path: Path) -> None:
                 "display_color": hex_color,
             }
 
+        channel_display = {}
+
         meta = {
             "original_shape": [z0, y0, x0],
             "extent_um": [ext_z, ext_y, ext_x],
             "unit": "micrometer",
             "channel_info": channel_info,
+            "channel_display": channel_display,
             "levels": {},
         }
 
@@ -156,6 +181,18 @@ def extract(ims_path: Path) -> None:
                     actual_z = int(decode_attr(data.parent.attrs["ImageSizeZ"]))
                     actual_y = int(decode_attr(data.parent.attrs["ImageSizeY"]))
                     actual_x = int(decode_attr(data.parent.attrs["ImageSizeX"]))
+
+                    # Display range from Imaris's embedded per-channel histogram
+                    # (only present at the full-resolution level).
+                    if level_idx == 0:
+                        hist = data.parent["Histogram1024"][:]
+                        hmin = float(decode_attr(data.parent.attrs["HistogramMin1024"]))
+                        hmax = float(decode_attr(data.parent.attrs["HistogramMax1024"]))
+                        channel_display[f"c{ch_idx}"] = {
+                            "color_range": [hmin, hmax],
+                            "p01": percentile_from_histogram(hist, hmin, hmax, 1),
+                            "p99": percentile_from_histogram(hist, hmin, hmax, 99),
+                        }
 
                     level_meta[f"c{ch_idx}"] = {
                         "shape": shape,

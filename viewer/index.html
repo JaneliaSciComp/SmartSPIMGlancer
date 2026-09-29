@@ -148,15 +148,23 @@
             <option value="KS_Het_F_ANM583356">Het Female · ANM583356 · Atp13a2 V990M</option>
             <option value="KS_Hom_F_ANM583357">Hom Female · ANM583357 · Atp13a2 V990M</option>
             <option value="KS_Hom_M_ANM583365">Hom Male · ANM583365 · Atp13a2 V990M</option>
+            <option value="KS_WT_ANM586428">WT · ANM586428</option>
+            <option value="KS_Hom_Atp13a2V990M_ANM585864">Hom · ANM585864 · Atp13a2 V990M</option>
+            <option value="KS_Het_F_Atp13a2_ANM586962">Het Female · ANM586962 · Atp13a2</option>
+            <option value="KS_Hom_M_Atp13a2Floxed_ANM588125">Hom Male · ANM588125 · Atp13a2 Floxed</option>
+            <option value="KS_Het_Atp1392KOM2_ANM585714">Het · ANM585714 · Atp1392 KOM2</option>
+            <option value="KS__KO_F_ANM589947_SncaKO">KO Female · ANM589947 · SncaKO</option>
+            <option value="KS_TgTg_F_ANM588372_KOM2">TgTg Female · ANM588372 · KOM2</option>
           </select>
         </div>
         <div class="field" style="margin-top:6px">
           <label>Channel</label>
           <select id="ch-sel">
             <option value="all">All channels (multi-color)</option>
-            <option value="0">c0 — CD45 · immune cells</option>
-            <option value="1">c1 — Olig2 · oligodendrocytes</option>
-            <option value="2">c2 — TH · dopamine neurons</option>
+            <option value="0">c0</option>
+            <option value="1">c1</option>
+            <option value="2">c2</option>
+            <option value="3">c3</option>
           </select>
         </div>
         <div class="field" style="margin-top:6px">
@@ -173,28 +181,8 @@
 
       <!-- Channel legend -->
       <div class="card">
-        <div class="card-title">Antibody channels</div>
-        <div class="ch-row">
-          <span class="ch-dot" style="background:#001AFF"></span>
-          <div>
-            <span class="ch-label">c0 · Anti-CD45</span>
-            <div class="ch-target">Donkey-anti-Rat AF+ 488 · lymphocytes</div>
-          </div>
-        </div>
-        <div class="ch-row" style="margin-top:5px">
-          <span class="ch-dot" style="background:#09FF00"></span>
-          <div>
-            <span class="ch-label">c1 · Anti-Olig2</span>
-            <div class="ch-target">Donkey-anti-Goat AF+ 555 · oligodendrocytes</div>
-          </div>
-        </div>
-        <div class="ch-row" style="margin-top:5px">
-          <span class="ch-dot" style="background:#FF0000"></span>
-          <div>
-            <span class="ch-label">c2 · Anti-TH</span>
-            <div class="ch-target">Donkey-anti-Chicken SeTau 647 · dopamine neurons</div>
-          </div>
-        </div>
+        <div class="card-title" id="legend-title">Antibody channels</div>
+        <div id="legend-body"></div>
       </div>
 
       <!-- Open-in-tab link -->
@@ -224,16 +212,71 @@
 <script>
 const DATA_BASE = 'https://fileglancer.int.janelia.org/files/Ydk-A_LUfeQlXbAA/data';
 
-// Default channel colors (Imaris values) — overridden by meta.json at load time.
-// Format: [R, G, B] floats for GLSL, matching the IMS file's DataSetInfo/Channel N/Color.
-const DEFAULT_CH_COLORS = [
-  [0.000, 0.102, 1.000],  // c0 — blue  (AF488 · CD45)
-  [0.035, 1.000, 0.000],  // c1 — green (AF555 · Olig2)
-  [1.000, 0.000, 0.000],  // c2 — red   (SeTau647 · TH)
-];
+// Two antibody panels have been used across acquisitions. Colors are [R, G, B]
+// floats for GLSL and are a fixed display convention (not read from the IMS
+// file's own Imaris display colors).
+const LEGACY_STEMS = new Set([
+  'KS_WT_F_ANM586642',
+  'KS_Het_F_ANM583356',
+  'KS_Hom_F_ANM583357',
+  'KS_Hom_M_ANM583365',
+]);
+
+const PANELS = {
+  // Original 4 brains (WT / Atp13a2 V990M Het/Hom): CD45 / Olig2 / TH, all 3 worked.
+  legacy: {
+    label: 'Antibody channels — CD45 / Olig2 / TH panel',
+    channels: {
+      0: { name: 'Anti-CD45',  target: 'Donkey-anti-Rat AF+488 · lymphocytes',           rgb: [0.000, 0.102, 1.000] },
+      1: { name: 'Anti-Olig2', target: 'Donkey-anti-Goat AF+555 · oligodendrocytes',     rgb: [0.035, 1.000, 0.000] },
+      2: { name: 'Anti-TH',    target: 'Donkey-anti-Chicken SeTau647 · DA neurons',      rgb: [1.000, 0.000, 0.000] },
+    },
+  },
+  // Later brains: CD45/CD8a / PaSYN / TH. A 4th (Olig2, DyLight755) channel was
+  // attempted on some samples but that antibody did not work.
+  current: {
+    label: 'Antibody channels — CD45/CD8a / PaSYN / TH panel',
+    channels: {
+      0: { name: 'Anti-CD45/CD8a', target: 'Donkey-anti-Rat AF+488 · lymphocytes',                       rgb: [1.000, 1.000, 0.000] },
+      1: { name: 'Anti-PaSYN',     target: 'Donkey-anti-Rabbit AF+555 · phospho-alpha-synuclein',        rgb: [1.000, 0.000, 1.000] },
+      2: { name: 'Anti-TH',        target: 'Donkey-anti-Chicken SeTau647 · DA neurons',                  rgb: [0.000, 1.000, 1.000] },
+      3: { name: 'Anti-Olig2',     target: 'Donkey-anti-Goat DyLight755 · antibody did not work',        rgb: [0.500, 0.500, 0.500] },
+    },
+  },
+};
+
+function panelFor(stem) {
+  return LEGACY_STEMS.has(stem) ? PANELS.legacy : PANELS.current;
+}
+
+function rgbToHex([r, g, b]) {
+  const c = v => Math.round(v * 255).toString(16).padStart(2, '0').toUpperCase();
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
 
 function zarrUrl(stem, ch) {
   return new URL(`./zarr/${stem}/c${ch}`, window.location.href).href;
+}
+
+// Cache fetched meta.json per stem to avoid re-fetching between buildNgUrl and updateChannelUI.
+const metaCache = new Map();
+async function loadMeta(stem) {
+  if (metaCache.has(stem)) return metaCache.get(stem);
+  let meta = null;
+  try {
+    const resp = await fetch(`${DATA_BASE}/${stem}.meta.json`);
+    if (resp.ok) meta = await resp.json();
+  } catch {}
+  metaCache.set(stem, meta);
+  return meta;
+}
+
+// Which channel indices actually exist in this dataset's IMS file.
+function availableChannels(meta, panel) {
+  if (meta?.channel_info) {
+    return Object.keys(meta.channel_info).map(k => parseInt(k.slice(1), 10)).sort((a, b) => a - b);
+  }
+  return Object.keys(panel.channels).map(Number).sort((a, b) => a - b);
 }
 
 // Build a Neuroglancer GLSL shader that maps [lo,hi] → [0,1] and tints by color.
@@ -244,11 +287,8 @@ function makeShader(r, g, b) {
 // Build the full Neuroglancer URL for the selected stem + channel + layout.
 // chSel is 'all' | '0' | '1' | '2'; layout is a Neuroglancer layout string.
 async function buildNgUrl(stem, chSel, layout) {
-  let meta = null;
-  try {
-    const resp = await fetch(`${DATA_BASE}/${stem}.meta.json`);
-    if (resp.ok) meta = await resp.json();
-  } catch {}
+  const meta  = await loadMeta(stem);
+  const panel = panelFor(stem);
 
   // Physical extent for initial navigation (fall back to WT values)
   const extent = meta?.extent_um ?? [8280, 18460, 13368];  // [z, y, x] in µm
@@ -260,16 +300,16 @@ async function buildNgUrl(stem, chSel, layout) {
   const crossSectionScale = Math.max(...extent) / 900;
 
   // Which channels to load
-  const chList = chSel === 'all' ? [0, 1, 2] : [parseInt(chSel, 10)];
+  const chList = chSel === 'all' ? availableChannels(meta, panel) : [parseInt(chSel, 10)];
 
   const layers = chList.map(ch => {
     const src   = `zarr3://${zarrUrl(stem, ch)}`;
     const cd    = meta?.channel_display?.[`c${ch}`];
-    const ci    = meta?.channel_info?.[`c${ch}`];
     const range = (cd?.p01 != null && cd?.p99 != null) ? [cd.p01, cd.p99]
                 : (cd?.color_range ?? null);
-    const [r, g, b] = ci?.imaris_color_rgb ?? DEFAULT_CH_COLORS[ch];
-    const name  = ci?.label ?? `c${ch}`;
+    const info  = panel.channels[ch];
+    const [r, g, b] = info?.rgb ?? [1, 1, 1];
+    const name  = info?.name ?? `c${ch}`;
 
     const layer = {
       type: 'image',
@@ -303,6 +343,8 @@ const ngLink      = document.getElementById('ng-link');
 const stemSel     = document.getElementById('stem-sel');
 const chSel       = document.getElementById('ch-sel');
 const layoutSel   = document.getElementById('layout-sel');
+const legendTitle = document.getElementById('legend-title');
+const legendBody  = document.getElementById('legend-body');
 
 function setStatus(text, state = 'wait') {
   statusEl.textContent = text;
@@ -310,11 +352,49 @@ function setStatus(text, state = 'wait') {
   badge.className      = 'badge ' + state;
 }
 
+// Repopulate the channel dropdown + legend for the currently selected dataset:
+// which channels exist in this file, what each one is (panel-dependent), and its color.
+async function updateChannelUI(stem) {
+  const meta    = await loadMeta(stem);
+  const panel   = panelFor(stem);
+  const present = availableChannels(meta, panel);
+
+  for (let ch = 0; ch <= 3; ch++) {
+    const opt = chSel.querySelector(`option[value="${ch}"]`);
+    if (!opt) continue;
+    const info = panel.channels[ch];
+    const isPresent = present.includes(ch);
+    opt.disabled = !isPresent;
+    opt.textContent = info ? `c${ch} — ${info.name}` : `c${ch}`;
+  }
+  if (chSel.selectedOptions[0]?.disabled) chSel.value = 'all';
+
+  legendTitle.textContent = panel.label;
+  legendBody.innerHTML = present
+    .filter(ch => panel.channels[ch])
+    .map(ch => {
+      const info = panel.channels[ch];
+      return `<div class="ch-row" style="margin-top:5px">
+        <span class="ch-dot" style="background:${rgbToHex(info.rgb)}"></span>
+        <div>
+          <span class="ch-label">c${ch} · ${info.name}</span>
+          <div class="ch-target">${info.target}</div>
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
 async function updateLink() {
   const url = await buildNgUrl(stemSel.value, chSel.value, layoutSel.value);
   const chLabel = chSel.options[chSel.selectedIndex].text.split('—')[0].trim();
   ngLink.href        = url;
   ngLink.textContent = `${stemSel.value} / ${chLabel} ↗`;
+}
+
+async function onStemChange() {
+  await updateChannelUI(stemSel.value);
+  await updateLink();
 }
 
 async function loadDataset() {
@@ -331,7 +411,7 @@ document.getElementById('toggle-btn').addEventListener('click', () => {
 });
 
 loadBtn.addEventListener('click', loadDataset);
-stemSel.addEventListener('change', updateLink);
+stemSel.addEventListener('change', onStemChange);
 chSel.addEventListener('change', updateLink);
 layoutSel.addEventListener('change', updateLink);
 
@@ -360,6 +440,7 @@ async function main() {
     'Select a dataset and click Load.';
   loadBtn.disabled = false;
 
+  await updateChannelUI(stemSel.value);
   await updateLink();
 }
 
